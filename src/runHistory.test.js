@@ -19,6 +19,11 @@ describe('runHistory', () => {
       expect(r2.id).toBeDefined();
       expect(r1.id).not.toBe(r2.id);
     });
+
+    it('throws if jobName is not provided', () => {
+      expect(() => createRunRecord()).toThrow();
+      expect(() => createRunRecord('')).toThrow();
+    });
   });
 
   describe('updateRunRecord', () => {
@@ -43,6 +48,13 @@ describe('runHistory', () => {
       const record = createRunRecord('my-job');
       updateRunRecord(record, { status: 'success' });
       expect(record.status).toBe('running');
+    });
+
+    it('preserves the original startTime', () => {
+      const record = createRunRecord('my-job');
+      const originalStart = record.startTime;
+      const updated = updateRunRecord(record, { status: 'success' });
+      expect(updated.startTime).toBe(originalStart);
     });
   });
 
