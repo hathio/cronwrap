@@ -1,47 +1,53 @@
 const { createRunRecord, updateRunRecord } = require('./runHistory');
+const { buildAlertMessage } = require('./alerts/alertManager');
+const { createRetryPolicy, executeWithRetry } = require('./retryPolicy');
 
 /**
- * Wraps a cron job function with logging, error handling, and run history tracking.
- * @param {string} jobName - Unique name for the cron job
- * @param {Function} fn - The async function to execute
- * @param {object} options - Optional configuration
- * @param {Function} options.onError - Callback invoked with (error, record) on failure
- * @param {Function} options.onSuccess - Callback invoked with (record) on success
+ * Runs a named job function, tracks history, handles retries, and fires alerts on failure.
+ *
+ * @param {string} name - Job identifier
+ * @param {Function} jobFn - Async function containing the job logic
+ * @param {object} options
+ * @param {object} [options.alertConfig] - Alert configuration passed to buildAlertMessage
+ * @param {object} [options.retryPolicy] - Retry policy from createRetryPolicy; defaults to no retries
+ * @param {Function} [options.alertFn] - Function to send an alert message (async)
+ * @param {Function} [options.logger] - Logger object with .info / .error methods
+ * @returns {Promise<object>} The final run record
  */
-async function runJob(jobName, fn, options = {}) {
-  const { onError, onSuccess } = options;
-  const record = createRunRecord(jobName);
+async function runJob(name, jobFn, options = {}) {
+  const {
+    alertConfig = {},
+    retryPolicy = createRetryPolicy({ maxRetries: 0 }),
+    alertFn = null,
+    logger = console,
+  } = options;
 
-  console.log(`[cronwrap] [${jobName}] Starting job at ${record.startedAt}`);
+  const record = createRunRecord(name);
+  logger.info(`[cronwrap] Starting job: ${name} (run ${record.runId})`);
+
+  const onRetry = (attempt, err, delay) => {
+    logger.info(`[cronwrap] Job "${name}" failed on attempt ${attempt}, retrying in ${delay}ms — ${err.message}`);
+  };
 
   try {
-    await fn();
-
-    const completed = updateRunRecord(record, { status: 'success' });
-    console.log(
-      `[cronwrap] [${jobName}] Completed successfully in ${completed.durationMs}ms`
-    );
-
-    if (typeof onSuccess === 'function') {
-      await onSuccess(completed);
-    }
-
-    return completed;
+    const result = await executeWithRetry(jobFn, retryPolicy, onRetry);
+    const finalRecord = updateRunRecord(record, { status: 'success', result });
+    logger.info(`[cronwrap] Job "${name}" completed successfully in ${finalRecord.durationMs}ms`);
+    return finalRecord;
   } catch (err) {
-    const failed = updateRunRecord(record, {
-      status: 'failure',
-      error: err.message,
-    });
+    const finalRecord = updateRunRecord(record, { status: 'failure', error: err.message });
+    logger.error(`[cronwrap] Job "${name}" failed after all retries: ${err.message}`);
 
-    console.error(
-      `[cronwrap] [${jobName}] Failed after ${failed.durationMs}ms: ${err.message}`
-    );
-
-    if (typeof onError === 'function') {
-      await onError(err, failed);
+    if (alertFn) {
+      try {
+        const message = buildAlertMessage(name, finalRecord, alertConfig);
+        await alertFn(message);
+      } catch (alertErr) {
+        logger.error(`[cronwrap] Alert delivery failed for job "${name}": ${alertErr.message}`);
+      }
     }
 
-    return failed;
+    return finalRecord;
   }
 }
 
