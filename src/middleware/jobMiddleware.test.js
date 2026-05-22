@@ -52,6 +52,28 @@ describe('createMiddlewarePipeline', () => {
     await pipeline({ jobName: 'test' }, async () => {});
     expect(called).toEqual(['before']);
   });
+
+  it('handles middleware with only an after hook', async () => {
+    const called = [];
+    const mw = { after: async () => called.push('after') };
+    const pipeline = createMiddlewarePipeline([mw]);
+    await pipeline({ jobName: 'test' }, async () => {});
+    expect(called).toEqual(['after']);
+  });
+
+  it('passes context to before and after hooks', async () => {
+    const captured = [];
+    const mw = {
+      before: async (ctx) => captured.push({ hook: 'before', jobName: ctx.jobName }),
+      after: async (ctx) => captured.push({ hook: 'after', jobName: ctx.jobName }),
+    };
+    const pipeline = createMiddlewarePipeline([mw]);
+    await pipeline({ jobName: 'ctx-test' }, async () => {});
+    expect(captured).toEqual([
+      { hook: 'before', jobName: 'ctx-test' },
+      { hook: 'after', jobName: 'ctx-test' },
+    ]);
+  });
 });
 
 describe('timingMiddleware', () => {
