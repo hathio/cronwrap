@@ -1,53 +1,54 @@
+const { randomUUID } = require('crypto');
+
 /**
- * Creates a new run record with a start timestamp.
+ * Creates a new run record for a job at start time.
  * @param {string} jobName
- * @returns {object} run record
+ * @returns {object}
  */
 function createRunRecord(jobName) {
   return {
+    id: randomUUID(),
     jobName,
-    startedAt: new Date().toISOString(),
-    _startMs: Date.now(),
     status: 'running',
-    finishedAt: null,
+    startTime: new Date(),
+    endTime: null,
     durationMs: null,
     error: null,
   };
 }
 
 /**
- * Finalizes a run record with status, duration, and optional error.
- * @param {object} record - The record created by createRunRecord
- * @param {object} updates - Fields to merge (status, error)
- * @returns {object} completed record
+ * Returns an updated copy of a run record with end time and duration.
+ * @param {object} record - original run record
+ * @param {object} updates - fields to merge (status, error, etc.)
+ * @returns {object}
  */
 function updateRunRecord(record, updates = {}) {
-  const finishedAt = new Date().toISOString();
-  const durationMs = Date.now() - record._startMs;
-
-  const completed = {
+  const endTime = new Date();
+  return {
     ...record,
     ...updates,
-    finishedAt,
-    durationMs,
+    endTime,
+    durationMs: endTime - record.startTime,
   };
-
-  // Remove internal timing field before returning
-  delete completed._startMs;
-
-  return completed;
 }
 
 /**
- * Formats a run record as a human-readable summary string.
+ * Formats a run record into a human-readable log string.
  * @param {object} record
  * @returns {string}
  */
 function formatRecord(record) {
-  const status = record.status.toUpperCase();
-  const duration = record.durationMs != null ? `${record.durationMs}ms` : 'N/A';
-  const errorInfo = record.error ? ` | Error: ${record.error}` : '';
-  return `[${record.jobName}] ${status} | Started: ${record.startedAt} | Duration: ${duration}${errorInfo}`;
+  const start = record.startTime.toISOString();
+  const duration = record.durationMs !== null ? `${record.durationMs}ms` : 'n/a';
+  let line = `[${start}] job="${record.jobName}" id=${record.id} status=${record.status} duration=${duration}`;
+
+  if (record.error) {
+    const msg = record.error instanceof Error ? record.error.message : String(record.error);
+    line += ` error="${msg}"`;
+  }
+
+  return line;
 }
 
 module.exports = { createRunRecord, updateRunRecord, formatRecord };
